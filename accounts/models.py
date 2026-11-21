@@ -1,7 +1,4 @@
 from django.db import models
-
-# Create your models here.
-from django.db import models
 from django.contrib.auth.models import (
     BaseUserManager,
     AbstractBaseUser,
@@ -11,7 +8,7 @@ from django.urls import reverse
 
 
 class UserManager(BaseUserManager):
-    def create_customer(self, email, password, **kwargs):
+    def create_user(self, email, password, **kwargs):
         if not email:
             raise ValueError("email must be set!")
         email = self.normalize_email(email)
@@ -24,12 +21,12 @@ class UserManager(BaseUserManager):
         kwargs.setdefault("is_staff", True)
         kwargs.setdefault("is_superuser", True)
         kwargs.setdefault("is_active", True)
-        kwargs.setdefault("is_varified", True)
+        kwargs.setdefault("is_verified", True)
         if kwargs.get("is_staff") is not True:
             raise ValueError("invalid operation")
         if kwargs.get("is_superuser") is not True:
             raise ValueError("invalid operation")
-        return self.create_customer(email, password, **kwargs)
+        return self.create_user(email, password, **kwargs)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -39,7 +36,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     id = models.AutoField(unique=True, primary_key=True)
     name = models.CharField(max_length=50)
-    lastname = models.CharField(max_length=50)
+    last_name = models.CharField(max_length=50)
     # birth_date = models.DateField(auto_now=False, auto_now_add=False, null=True)
     email = models.EmailField(unique=True)
     created_date = models.DateField(auto_now_add=True)
@@ -47,7 +44,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_superuser = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["name", "lastname"]
+    REQUIRED_FIELDS = ["name", "last_name"]
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
     

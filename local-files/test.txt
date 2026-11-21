@@ -1,0 +1,102 @@
+
+<Code>
+class RoomSerializer(serializers.ModelSerializer):
+    reciver_email = serializers.EmailField()
+
+    class Meta:
+        model = Room
+        fields = ["name", "reciver_email", "is_group"]
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = request.user
+
+        try:
+            reciver = User.objects.get(email=validated_data["reciver_email"])
+        except User.DoesNotExist:
+            raise serializers.ValidationError(
+                {"reciver_email": "user with this email does not exist."})
+
+        if user == reciver:
+            raise serializers.ValidationError(
+                {"reciver_email": "you cant create room with yours"})
+
+        existing_room = Room.objects.filter(
+            is_group=False,
+            userroom__user__in=[user, reciver]
+        ).annotate(
+            num_users=Count('userroom')
+        ).filter(
+            num_users=2
+        ).first()
+
+        if existing_room:
+            return existing_room
+
+        room = Room.objects.create(name=validated_data["name"])
+
+        UserRoom.objects.bulk_create([
+            UserRoom(user=user, room=room),
+            UserRoom(user=reciver, room=room)
+        ])
+
+        return room
+
+</code>
+<error>
+
+
+Traceback (most recent call last):
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 432, in get_attribute
+    return get_attribute(instance, self.source_attrs)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 99, in get_attribute
+    instance = getattr(instance, attr)
+AttributeError: 'Room' object has no attribute 'reciver_email'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\views\generic\base.py", line 104, in view
+    return self.dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 526, in dispatch
+    response = self.handle_exception(exc)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 474, in handle_exception
+    self.raise_uncaught_exception(exc)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 485, in raise_uncaught_exception
+    raise exc
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 523, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "D:\projects\chat-app-server\app\views.py", line 18, in get
+    return Response(serializer.data, status=200)
+                    ^^^^^^^^^^^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 818, in data
+    ret = super().data
+          ^^^^^^^^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 251, in data
+    self._data = self.to_representation(self.instance)
+                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 737, in to_representation
+    self.child.to_representation(item) for item in iterable
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 539, in to_representation
+    attribute = field.get_attribute(instance)
+  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 465, in get_attribute
+    raise type(exc)(msg)
+AttributeError: Got AttributeError when attempting to get a value for field `reciver_email` on serializer `RoomSerializer`.
+The serializer field might be named incorrectly and not match any attribute or key on the `Room` instance.
+Original exception text was: 'Room' object has no attribute 'reciver_email'.
+[20/Nov/2026 11:07:03] "GET /api/app/room HTTP/1.1" 500 134800
+
+</error>
+
+
+
+

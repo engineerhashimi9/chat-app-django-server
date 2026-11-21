@@ -1,7 +1,6 @@
-from django.shortcuts import render
 from rest_framework.views import APIView
 from accounts.models import User
-from .serializers import UserSerializer
+from .serializers import UserSerializer,RegisterSerializer
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -10,14 +9,15 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from rest_framework_simplejwt.tokens import RefreshToken
 # Create your views here.
 # create the user and return the user token
 class RegisterView(APIView):
     def post(self, request):
-        serializer = UserSerializer(data=request.data)
+        serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            token = TokenObtainPairView(serializer.instance)
+            token = RefreshToken.for_user(serializer)
             return Response({**serializer.data, "refresh": str(token), "access": str(token.access_token)}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 class LoginView(APIView):
@@ -25,7 +25,7 @@ class LoginView(APIView):
         email = request.data.get("email")
         password = request.data.get("password")
         user = User.objects.filter(email=email).first()
-        if user and user.check_password(password):
+        if user and user.check_password(password) and not user.is_active:
             refresh = RefreshToken.for_user(user)
             return Response(
                 {
