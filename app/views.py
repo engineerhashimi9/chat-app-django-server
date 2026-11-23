@@ -9,7 +9,7 @@ from accounts.models import User
 
 class RoomListApiView(APIView):
     serializer_class = RoomSerializer
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         rooms = Room.objects.filter(userroom__user=request.user)
@@ -65,7 +65,7 @@ class RoomDetailApiView(APIView):
 
 
 class MessageApiView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
 
     def get(self, request):
