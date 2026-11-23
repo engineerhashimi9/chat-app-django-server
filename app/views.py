@@ -9,7 +9,7 @@ from accounts.models import User
 
 class RoomListApiView(APIView):
     serializer_class = RoomSerializer
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         rooms = Room.objects.filter(userroom__user=request.user)
@@ -64,8 +64,8 @@ class RoomDetailApiView(APIView):
             return Response({"detail": "object deleted!"}, status=201)
 
 
-class MessageListApiView(APIView):
-    # permission_classes = [IsAuthenticated]
+class MessageApiView(APIView):
+    permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
 
     def get(self, request):
