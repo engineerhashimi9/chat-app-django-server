@@ -1,102 +1,1358 @@
+# **WebSockets in Django using Django Channels**
 
-<Code>
-class RoomSerializer(serializers.ModelSerializer):
-    reciver_email = serializers.EmailField()
+Since you're working with a **React frontend and Django REST Framework backend** for your E-library project, I'll explain how to implement WebSockets in that architecture.
 
-    class Meta:
-        model = Room
-        fields = ["name", "reciver_email", "is_group"]
+The most common Django solution is **Django Channels**.
 
-    def create(self, validated_data):
-        request = self.context.get("request")
-        user = request.user
+With Django Channels, you can build:
 
-        try:
-            reciver = User.objects.get(email=validated_data["reciver_email"])
-        except User.DoesNotExist:
-            raise serializers.ValidationError(
-                {"reciver_email": "user with this email does not exist."})
+- Real-time chat applications.
+- Notifications.
+- Online/offline user status.
+- Live messaging.
+- Typing indicators.
+- Real-time updates without refreshing the page.
 
-        if user == reciver:
-            raise serializers.ValidationError(
-                {"reciver_email": "you cant create room with yours"})
+Let's start with the fundamentals.
 
-        existing_room = Room.objects.filter(
-            is_group=False,
-            userroom__user__in=[user, reciver]
-        ).annotate(
-            num_users=Count('userroom')
-        ).filter(
-            num_users=2
-        ).first()
+## **1. What is a WebSocket?**
 
-        if existing_room:
-            return existing_room
+Normally, when React communicates with Django using HTTP, the communication works like this:
 
-        room = Room.objects.create(name=validated_data["name"])
+**HTTP communication**
 
-        UserRoom.objects.bulk_create([
-            UserRoom(user=user, room=room),
-            UserRoom(user=reciver, room=room)
-        ])
+**React**
 
-        return room
+I need new messages
 
-</code>
-<error>
+HTTP request
 
+**Django**
 
-Traceback (most recent call last):
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 432, in get_attribute
-    return get_attribute(instance, self.source_attrs)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 99, in get_attribute
-    instance = getattr(instance, attr)
-AttributeError: 'Room' object has no attribute 'reciver_email'
+Here are your messages
 
-During handling of the above exception, another exception occurred:
+HTTP response
 
-Traceback (most recent call last):
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
-    response = get_response(request)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
-    response = wrapped_callback(request, *callback_args, **callback_kwargs)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
-    return view_func(request, *args, **kwargs)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\django\views\generic\base.py", line 104, in view
-    return self.dispatch(request, *args, **kwargs)
-           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 526, in dispatch
-    response = self.handle_exception(exc)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 474, in handle_exception
-    self.raise_uncaught_exception(exc)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 485, in raise_uncaught_exception
-    raise exc
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\views.py", line 523, in dispatch
-    response = handler(request, *args, **kwargs)
-  File "D:\projects\chat-app-server\app\views.py", line 18, in get
-    return Response(serializer.data, status=200)
-                    ^^^^^^^^^^^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 818, in data
-    ret = super().data
-          ^^^^^^^^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 251, in data
-    self._data = self.to_representation(self.instance)
-                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 737, in to_representation
-    self.child.to_representation(item) for item in iterable
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\serializers.py", line 539, in to_representation
-    attribute = field.get_attribute(instance)
-  File "D:\projects\chat-app-server\.venv\Lib\site-packages\rest_framework\fields.py", line 465, in get_attribute
-    raise type(exc)(msg)
-AttributeError: Got AttributeError when attempting to get a value for field `reciver_email` on serializer `RoomSerializer`.
-The serializer field might be named incorrectly and not match any attribute or key on the `Room` instance.
-Original exception text was: 'Room' object has no attribute 'reciver_email'.
-[20/Nov/2026 11:07:03] "GET /api/app/room HTTP/1.1" 500 134800
+The request-response cycle ends. React must make another request to get new data.
 
-</error>
+With WebSockets, React establishes a persistent connection with Django.
+
+**WebSocket communication**
+
+**React frontend**
+
+Persistent connection
+
+Both sides can send messages at any time
+
+**Django backend**
+
+The connection remains open until one side closes it or it is interrupted.
+
+For example, when user A sends a message, Django can immediately send that message to user B without user B requesting it.
+
+That's the main benefit of WebSockets.
+
+## **2. What is Django Channels?**
+
+Django's traditional request handling is based on HTTP. Django Channels extends Django to support long-lived connections and protocols such as WebSockets.
+
+It uses ASGI (Asynchronous Server Gateway Interface) to handle these connections.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
 
 
 
+There are four important concepts you should understand:
 
+| Concept       | Responsibility                                |
+| ------------- | --------------------------------------------- |
+| Consumer      | Handles WebSocket connections and messages    |
+| Routing       | Directs WebSocket connections to consumers    |
+| Channel Layer | Enables communication between consumers       |
+| Redis         | Stores and distributes channel-layer messages |
+
+We'll understand each one while building a small chat application.
+
+## **3. Install Django Channels**
+
+In your Django backend, activate your virtual environment and run:
+
+```
+pip install -U "channels[daphne]"
+pip install channels_redis
+```
+
+What are these packages?
+
+- `channels`: Adds WebSocket support to Django.
+- `daphne`: An ASGI server that handles HTTP and WebSocket connections.
+- `channels_redis`: Connects Django Channels to Redis for communication between application processes.
+
+The official installation guide recommends installing Channels with its Daphne extra.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://channels.readthedocs.io\&sz=32)
+
+Channels 4.3.2 documentation+1
+
+
+
+Add the dependencies to your `requirements.txt`:
+
+```
+channels[daphne]
+channels_redis
+```
+
+## **4. Configure Django settings**
+
+Open `config/settings.py`.
+
+Add Channels and Daphne to `INSTALLED_APPS`:
+
+```
+INSTALLED_APPS = [    "daphne",    "django.contrib.admin",    "django.contrib.auth",    "django.contrib.contenttypes",    "django.contrib.sessions",    "django.contrib.messages",    "django.contrib.staticfiles",    "rest_framework",    "channels",    # Your applications    "api",    "books",    "users",]
+```
+
+Now add:
+
+```
+ASGI_APPLICATION = "config.asgi.application"
+```
+
+Here, `config` is your Django project package (the directory containing `settings.py` and `urls.py`).
+
+For local development, configure an in-memory channel layer:
+
+```
+CHANNEL_LAYERS = {    "default": {        "BACKEND": "channels.layers.InMemoryChannelLayer",    },}
+```
+
+This is enough to experiment with WebSockets on your local machine. Don't use the in-memory channel layer in production because separate server processes cannot communicate through it.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+
+
+## **5. Understand the project structure**
+
+Let's create a chat application inside your existing `api` app.
+
+Your structure will look like this:
+
+```
+backend/
+│
+├── config/
+│   ├── settings.py
+│   ├── urls.py
+│   └── asgi.py
+│
+├── api/
+│   ├── consumers.py       # WebSocket logic
+│   ├── routing.py         # WebSocket URLs
+│   ├── views.py
+│   └── urls.py
+│
+├── users/
+├── books/
+│
+├── manage.py
+└── requirements.txt
+```
+
+Notice two new files:
+
+- `consumers.py`: Handles connections and messages.
+- `routing.py`: Defines the WebSocket endpoints.
+
+## **6. Create a WebSocket Consumer**
+
+This is the most important part.
+
+In Django Channels, a **Consumer** is similar to a Django view, but instead of handling one HTTP request and returning one response, it handles a connection that can remain open.
+
+Create `api/consumers.py`:
+
+```
+import jsonfrom channels.generic.websocket import AsyncWebsocketConsumerclass ChatConsumer(AsyncWebsocketConsumer):    async def connect(self):        # Get room name from the URL        self.room_name = self.scope["url_route"]["kwargs"]["room_name"]        # Create a group name        self.room_group_name = f"chat_{self.room_name}"        # Add this connection to the group        await self.channel_layer.group_add(            self.room_group_name,            self.channel_name        )        # Accept the WebSocket connection        await self.accept()        print("WebSocket connected!")    async def disconnect(self, close_code):        # Remove this connection from the group        await self.channel_layer.group_discard(            self.room_group_name,            self.channel_name        )        print("WebSocket disconnected!")    async def receive(self, text_data):        # Receive a message from React        data = json.loads(text_data)        message = data["message"]        # Send message to everyone in the room        await self.channel_layer.group_send(            self.room_group_name,            {                "type": "chat_message",                "message": message,            }        )    async def chat_message(self, event):        # Send the message to the connected client        await self.send(text_data=json.dumps({            "message": event["message"]        }))
+```
+
+Let's understand these four methods.
+
+### `connect()`
+
+```
+async def connect(self):
+```
+
+Called when React establishes a new WebSocket connection.
+
+For example, when a user opens a chat room, Django executes this method.
+
+### `disconnect()`
+
+```
+async def disconnect(self, close_code):
+```
+
+Called when the WebSocket connection closes.
+
+For example, when the user closes the browser or navigates away.
+
+### `receive()`
+
+```
+async def receive(self, text_data):
+```
+
+Called whenever React sends a message through the WebSocket.
+
+For example:
+
+```
+{
+    "message": "Hello!"
+}
+```
+
+Django receives this message and processes it.
+
+### `chat_message()`
+
+```
+async def chat_message(self, event):
+```
+
+This method receives messages distributed through the channel layer and sends them to the connected React clients.
+
+One important detail:
+
+```
+"type": "chat_message"
+```
+
+Tells Channels which consumer method to execute.
+
+The event type determines the handler method. For example, `chat.message` would call `chat_message`.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub
+
+
+
+## **7. Configure WebSocket routing**
+
+Now we need to tell Django which consumer should handle which WebSocket URL.
+
+Create `api/routing.py`:
+
+```
+from django.urls import re_pathfrom .consumers import ChatConsumerwebsocket_urlpatterns = [    re_path(        r"ws/chat/(?P<room_name>\w+)/$",        ChatConsumer.as_asgi()    ),]
+```
+
+Now our WebSocket endpoint will be:
+
+```
+ws://localhost:8000/ws/chat/general/
+```
+
+The `general` part is the room name.
+
+You can also create different rooms:
+
+```
+ws://localhost:8000/ws/chat/room1/
+ws://localhost:8000/ws/chat/room2/
+ws://localhost:8000/ws/chat/room3/
+```
+
+Users connected to the same room receive the same broadcast messages.
+
+## **8. Configure ASGI**
+
+This is another important step.
+
+Django traditionally uses `wsgi.py` for WSGI servers. For WebSockets, we need an ASGI application.
+
+Open `config/asgi.py` and replace its contents with:
+
+```
+import osfrom django.core.asgi import get_asgi_applicationos.environ.setdefault(    "DJANGO_SETTINGS_MODULE",    "config.settings")# Initialize Django firstdjango_asgi_app = get_asgi_application()from channels.routing import (    ProtocolTypeRouter,    URLRouter,)from channels.auth import AuthMiddlewareStackfrom channels.security.websocket import OriginValidatorfrom api.routing import websocket_urlpatternsapplication = ProtocolTypeRouter({    # Normal HTTP requests    "http": django_asgi_app,    # WebSocket connections    "websocket": OriginValidator(        AuthMiddlewareStack(            URLRouter(websocket_urlpatterns)        ),        [            "http://localhost:5173",        ]
+```
+
+Replace the allowed origin with your actual React frontend origin.
+
+What does `ProtocolTypeRouter` do?
+
+It distinguishes between different connection types:
+
+- `http`: Sends normal HTTP requests to Django.
+- `websocket`: Sends WebSocket connections to Django Channels.
+
+`URLRouter` finds the appropriate consumer based on the WebSocket URL.
+
+`AuthMiddlewareStack` provides Django session-based authentication information to consumers.
+
+`OriginValidator` restricts which browser origins can establish WebSocket connections.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+## **9. Connect React to Django**
+
+Now let's connect your React application to the Django WebSocket server.
+
+Unlike HTTP, you don't use `fetch()` or Axios to send WebSocket messages. You use the browser's native `WebSocket` API.
+
+Create a React component:
+
+```
+import { useEffect, useRef, useState } from "react";
+
+function Chat() {
+
+    const socketRef = useRef(null);
+
+    const [messages, setMessages] = useState([]);
+    const [message, setMessage] = useState("");
+
+    useEffect(() => {
+
+        // Establish WebSocket connection
+        const socket = new WebSocket(
+            "ws://localhost:8000/ws/chat/general/"
+        );
+
+        socketRef.current = socket;
+
+        // Connection established
+        socket.onopen = () => {
+            console.log("Connected to Django!");
+        };
+
+        // Receive messages from Django
+        socket.onmessage = (event) => {
+
+            const data = JSON.parse(event.data);
+
+            setMessages((previous) => [
+                ...previous,
+                data.message
+            ]);
+        };
+
+        // Handle connection errors
+        socket.onerror = (error) => {
+            console.error("WebSocket error:", error);
+        };
+
+        // Connection closed
+        socket.onclose = () => {
+            console.log("Disconnected!");
+        };
+
+        // Clean up connection
+        return () => {
+            socket.close();
+            socketRef.current = null;
+        };
+
+    }, []);
+
+    // Send message to Django
+    const sendMessage = () => {
+
+        if (
+            socketRef.current?.readyState === WebSocket.OPEN
+        ) {
+
+            socketRef.current.send(
+                JSON.stringify({
+                    message: message
+                })
+            );
+
+            setMessage("");
+        }
+    };
+
+    return (
+        <div>
+
+            <h2>Chat Room</h2>
+
+            {messages.map((msg, index) => (
+                <p key={index}>{msg}</p>
+            ))}
+
+            <input
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Enter message..."
+            />
+
+            <button onClick={sendMessage}>
+                Send
+            </button>
+
+        </div>
+    );
+}
+
+export default Chat;
+```
+
+Let's understand the important JavaScript methods:
+
+| Method               | What it does                    |
+| -------------------- | ------------------------------- |
+| `new WebSocket(url)` | Creates a connection            |
+| `onopen`             | Runs when the connection opens  |
+| `onmessage`          | Runs when a message arrives     |
+| `send()`             | Sends a message                 |
+| `onclose`            | Runs when the connection closes |
+| `onerror`            | Handles connection errors       |
+
+## **10. Test your application**
+
+Start Django:
+
+```
+python manage.py runserver
+```
+
+Start React:
+
+```
+npm run dev
+```
+
+Now open your React application in two different browser tabs.
+
+Both should connect to:
+
+```
+ws://localhost:8000/ws/chat/general/
+```
+
+Send a message from the first tab:
+
+```
+Hello everyone!
+```
+
+The second tab should immediately receive:
+
+```
+Hello everyone!
+```
+
+Real-time communication
+
+You have now implemented a basic real-time chat using React, Django, and WebSockets.
+
+**A small correction to the consumer code in section 6:** Channel group names cannot contain underscores. Replace:
+
+```
+self.room_group_name = f"chat_{self.room_name}"
+```
+
+with:
+
+```
+self.room_group_name = f"chat.{self.room_name}"
+```
+
+Also, this example broadcasts messages but doesn't save them to your database. You would add database operations to persist chat history.
+
+# **11. What is Redis, and why do we need it?**
+
+You might be wondering why we installed `channels_redis`.
+
+Imagine your Django application has two server processes:
+
+- Server A handles React user 1.
+- Server B handles React user 2.
+
+User 1 sends a message to Server A.
+
+How does Server B know that it should deliver this message to user 2?
+
+That's where Redis comes in.
+
+**React user 1**
+
+**Django Server A**
+
+Receives message
+
+**Redis Channel Layer**
+
+Distributes events between servers
+
+**Django Server B**
+
+Receives the event
+
+**React user 2**
+
+Receives the message immediately
+
+Redis acts as a communication layer between Django processes.
+
+You don't necessarily need Redis while experimenting locally with one process, but you should use Redis for a production deployment with Channels. The official Channels project recommends `channels_redis` for production channel layers.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+### **Configure Redis in production**
+
+In `settings.py`:
+
+```
+import osCHANNEL_LAYERS = {    "default": {        "BACKEND": "channels_redis.core.RedisChannelLayer",        "CONFIG": {            "hosts": [                os.environ.get(                    "REDIS_URL",                    "redis://127.0.0.1:6379/0"                )            ],        },    },}
+```
+
+For Railway, create a Redis service and make its connection URL available to your Django service through the `REDIS_URL` environment variable.
+
+Keep the local fallback for development, and configure a proper production Redis URL in Railway.
+
+# **12. Deploy Django Channels to Railway**
+
+Since you've already been deploying your Django backend to Railway, there is one important difference.
+
+Previously, you were using Gunicorn:
+
+```
+gunicorn config.wsgi:application
+```
+
+But Gunicorn's normal WSGI application interface does not handle WebSocket connections.
+
+You need to run an ASGI server, such as Daphne.
+
+In your Railway service's start command, use:
+
+```
+daphne -b 0.0.0.0 -p $PORT config.asgi:application
+```
+
+Daphne can handle both your regular Django HTTP endpoints and WebSocket connections.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+When your React application is deployed over HTTPS, use:
+
+```
+const socket = new WebSocket(
+    "wss://your-backend-domain.com/ws/chat/general/"
+);
+```
+
+Notice:
+
+- `ws://` is for unencrypted WebSocket connections.
+- `wss://` is for secure WebSocket connections.
+
+# **13. Important: WebSockets and JWT authentication**
+
+I want to highlight something important because your existing React + Django project uses JWT.
+
+In our example, we used:
+
+```
+AuthMiddlewareStack(    URLRouter(websocket_urlpatterns))
+```
+
+This integrates Django's session-based authentication with WebSockets.
+
+**However, it does not automatically authenticate your JWT access tokens.**
+
+If your React application stores JWT tokens in `localStorage`, you need additional authentication middleware for WebSocket connections.
+
+You also need to check that the authenticated user is allowed to join the requested chat room.
+
+The browser's native WebSocket API does not let you attach arbitrary HTTP headers such as `Authorization` when creating a connection. Avoid putting access tokens in URL query parameters because URLs can be exposed in logs.
+
+You can implement secure JWT authentication using custom Channels middleware or an appropriately configured secure cookie authentication approach.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://channels.readthedocs.io\&sz=32)
+
+Channels 4.3.2 documentation+1
+
+
+
+# **14. What should you learn next?**
+
+For building a proper real-time messaging system in your E-library, I recommend this learning sequence:
+
+1. **Basic WebSocket connection**
+
+   Connect React to Django and send/receive messages.
+
+   Covered
+2. **Django Channels Consumers**
+
+   Understand `connect`, `disconnect`, `receive`, and asynchronous methods.
+3. **Channel Layers and Redis**
+
+   Communicate between multiple users and server processes.
+4. **JWT Authentication**
+
+   Secure WebSocket connections and identify users.
+5. **Private and Group Chat**
+
+   Implement individual conversations and group messaging.
+6. **Database Integration**
+
+   Store messages, timestamps, sender IDs, and read status.
+7. **Deployment**
+
+   Run ASGI on Railway with Redis.
+
+## **Official learning resources**
+
+- [Django Channels documentation](https://channels.readthedocs.io/en/stable/?utm_source=chatgpt.com)
+- [Understanding Channels and Consumers](https://channels.readthedocs.io/en/stable/introduction.html?utm_source=chatgpt.com)
+- [Channel Layers and Redis](https://github.com/django/channels/blob/main/docs/topics/channel_layers.rst?utm_source=chatgpt.com)
+- [Deploying Django Channels](https://github.com/django/channels/blob/main/docs/deploying.rst?utm_source=chatgpt.com)
+
+**My suggestion for your next implementation:** Build a small React + Django chat application with JWT authentication, private conversations, message persistence in Django's database, and Redis for real-time delivery. That project will teach you nearly everything you need to work with WebSockets professionally.
+
+
+
+
+
+Got it. Let's build this specifically for your **Flutter mobile chat app + Django REST Framework + Simple JWT**.
+
+The important thing is that you should use Django REST Framework and WebSockets together, not replace DRF with WebSockets.
+
+- **DRF + JWT:** Registration, login, user profiles, conversations, and loading chat history.
+- **Django Channels + WebSockets:** Sending and receiving messages instantly.
+- **Redis:** Distributing real-time messages between Django server processes.
+
+And there's good news: Flutter mobile apps can send an `Authorization` header when establishing a WebSocket connection. So you can directly use your existing JWT access token.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://api.flutter.dev\&sz=32)
+
+Dart API+1
+
+
+
+# **1. Understand the complete architecture**
+
+Imagine two users are chatting.
+
+**Flutter app – User A**
+
+**HTTP / REST**
+
+Login, JWT, chat history
+
+**WebSocket**
+
+Live messages
+
+**Django backend**
+
+DRF + Simple JWT + Django Channels
+
+**Database + Redis**
+
+Store messages and distribute real-time events
+
+**Flutter app – User B**
+
+The actual workflow:
+
+1. User logs in using your existing DRF login endpoint.
+2. Django returns an access token and refresh token.
+3. Flutter stores the tokens securely.
+4. Flutter establishes a WebSocket connection with Django, sending the access token.
+5. Django validates the JWT and identifies the user.
+6. The user joins a conversation room.
+7. Whenever someone sends a message, Django broadcasts it to the room.
+8. All connected participants receive the message immediately.
+
+Let's implement it.
+
+# **2. Configure Django Channels**
+
+Inside your Django backend, install:
+
+```
+pip install -U "channels[daphne]"
+pip install channels_redis
+```
+
+Add these to your `requirements.txt`:
+
+```
+channels[daphne]
+channels_redis
+```
+
+In `settings.py`:
+
+```
+INSTALLED_APPS = [    "daphne",    "django.contrib.admin",    "django.contrib.auth",    "django.contrib.contenttypes",    "django.contrib.sessions",    "django.contrib.messages",    "django.contrib.staticfiles",    "rest_framework",    "rest_framework_simplejwt",    "channels",    # Your apps    "api",    "users",    "books",]
+```
+
+Configure ASGI:
+
+```
+ASGI_APPLICATION = "config.asgi.application"
+```
+
+For local development, use an in-memory channel layer:
+
+```
+CHANNEL_LAYERS = {    "default": {        "BACKEND": "channels.layers.InMemoryChannelLayer",    },}
+```
+
+Later, we'll configure Redis for production.
+
+# **3. Authenticate WebSocket connections using JWT**
+
+This is the most important part of the integration.
+
+You already use Simple JWT for your REST API. However, Django Channels does not automatically use DRF's `JWTAuthentication`.
+
+The standard `AuthMiddlewareStack` authenticates Django session users, not your JWT tokens.
+
+We need custom middleware that:
+
+1. Reads the Authorization header.
+2. Extracts the JWT access token.
+3. Validates the token using Simple JWT.
+4. Retrieves the corresponding Django user.
+5. Attaches that user to the WebSocket connection.
+
+Channels officially supports custom authentication middleware for this purpose.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+Create:
+
+`api/middleware.py`
+
+```
+from django.contrib.auth.models import AnonymousUserfrom channels.db import database_sync_to_asyncfrom rest_framework_simplejwt.authentication import JWTAuthenticationfrom rest_framework.exceptions import AuthenticationFailedfrom rest_framework_simplejwt.exceptions import InvalidToken@database_sync_to_asyncdef get_user_from_token(token):    try:        jwt_auth = JWTAuthentication()        # Validate JWT        validated_token = jwt_auth.get_validated_token(token)        # Get Django user        return jwt_auth.get_user(validated_token)    except (InvalidToken, AuthenticationFailed):        return AnonymousUser()class JWTAuthMiddleware:    def __init__(self, inner):        self.inner = inner    async def __call__(self, scope, receive, send):        # Read Authorization header        headers = dict(scope.get("headers", []))        auth_header = headers.get(
+```
+
+Now, whenever a Flutter user connects, Django can access their authenticated user through:
+
+```
+self.scope["user"]
+```
+
+For example:
+
+```
+user = self.scope["user"]print(user.id)print(user.email)
+```
+
+**Important:** An invalid token results in `AnonymousUser`, which we will reject in our consumer.
+
+# **4. Create your WebSocket Consumer**
+
+Think of a consumer as a controller that manages a WebSocket connection.
+
+For your chat app, let's create a consumer for individual conversations.
+
+Create `api/consumers.py`:
+
+```
+from channels.generic.websocket import AsyncJsonWebsocketConsumerclass ChatConsumer(AsyncJsonWebsocketConsumer):    async def connect(self):        # Get authenticated user        self.user = self.scope["user"]        # Reject unauthenticated users        if not self.user.is_authenticated:            await self.close(code=4401)            return        # Get conversation ID from URL        self.conversation_id = (            self.scope["url_route"]["kwargs"]["conversation_id"]        )        # Create a group for this conversation        self.room_group_name = (            f"conversation.{self.conversation_id}"        )        # TODO: Verify that this user belongs to this conversation        # before accepting the connection.        # Join conversation group        await self.channel_layer.group_add(            self.room_group_name,            self.channel_name        )        await self.accept()
+```
+
+There are four important methods:
+
+| Method           | Purpose                             |
+| ---------------- | ----------------------------------- |
+| `connect()`      | Authenticate and connect user       |
+| `disconnect()`   | Remove user from conversation       |
+| `receive_json()` | Receive a message from Flutter      |
+| `chat_message()` | Send a broadcast message to Flutter |
+
+Notice:
+
+```
+"type": "chat.message"
+```
+
+Channels uses this event type to call the `chat_message()` method.
+
+Also, the group name uses a dot rather than an underscore because Channels group names have restricted characters.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+**Security note:** Before deploying, implement the conversation membership check. Authentication alone must not allow a user to join any conversation simply by guessing its ID.
+
+# **5. Configure WebSocket URLs**
+
+Create `api/routing.py`:
+
+```
+from django.urls import pathfrom .consumers import ChatConsumerwebsocket_urlpatterns = [    path(        "ws/chat/<int:conversation_id>/",        ChatConsumer.as_asgi(),    ),]
+```
+
+For example, conversation number 15 will have this WebSocket URL:
+
+```
+ws://localhost:8000/ws/chat/15/
+```
+
+This means the user is connecting to conversation 15.
+
+## **6. Configure ASGI**
+
+Open `config/asgi.py`:
+
+```
+import osfrom django.core.asgi import get_asgi_applicationos.environ.setdefault(    "DJANGO_SETTINGS_MODULE",    "config.settings")# Initialize Django before importing consumersdjango_asgi_app = get_asgi_application()from channels.routing import ProtocolTypeRouter, URLRouterfrom api.routing import websocket_urlpatternsfrom api.middleware import JWTAuthMiddlewareapplication = ProtocolTypeRouter({    # HTTP requests handled by Django    "http": django_asgi_app,    # WebSocket connections handled by Channels    "websocket": JWTAuthMiddleware(        URLRouter(websocket_urlpatterns)    ),})
+```
+
+Now both HTTP and WebSocket connections are handled by the same Django application.
+
+Your DRF URLs remain unchanged. You do not need to convert your existing API views into consumers.
+
+# **7. Connect Flutter to Django using JWT**
+
+Now we reach the part you need in your Flutter application.
+
+We'll use:
+
+- `web_socket_channel` for WebSocket communication.
+- `flutter_secure_storage` for securely storing JWT tokens.
+
+Install them:
+
+```
+flutter pub add web_socket_channel
+flutter pub add flutter_secure_storage
+```
+
+### **Step 1. Store JWT tokens after login**
+
+You already have a Django login endpoint:
+
+```
+POST /api/v1/login/
+```
+
+It returns:
+
+```
+{
+    "access": "ACCESS_TOKEN",
+    "refresh": "REFRESH_TOKEN"
+}
+```
+
+In Flutter, after a successful login, store the tokens:
+
+```
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+const storage = FlutterSecureStorage();
+
+Future<void> saveTokens(
+    String access,
+    String refresh,
+) async {
+
+    await storage.write(
+        key: 'access',
+        value: access,
+    );
+
+    await storage.write(
+        key: 'refresh',
+        value: refresh,
+    );
+}
+```
+
+Use the access token for WebSocket authentication.
+
+### **Step 2. Create a WebSocket service**
+
+I recommend creating a separate service rather than writing WebSocket logic directly inside your chat screen.
+
+Your Flutter structure could look like:
+
+```
+lib/
+│
+├── services/
+│   ├── api_service.dart
+│   └── chat_socket_service.dart
+│
+├── models/
+│   └── message.dart
+│
+├── screens/
+│   └── chat_screen.dart
+│
+└── main.dart
+```
+
+Create `services/chat_socket_service.dart`:
+
+```
+
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:web_socket_channel/io.dart';
+
+class ChatSocketService {
+
+  static const storage = FlutterSecureStorage();
+
+  IOWebSocketChannel? _channel;
+
+  // Expose incoming messages to Flutter UI
+  Stream<dynamic>? get messages => _channel?.stream;
+
+  // Connect to a conversation
+  Future<void> connect(int conversationId) async {
+
+    final accessToken = await storage.read(
+      key: 'access',
+    );
+
+    if (accessToken == null) {
+      throw Exception('User is not authenticated');
+    }
+
+    final uri = Uri.parse(
+      'ws://10.0.2.2:8000/ws/chat/$conversationId/',
+    );
+
+    _channel = IOWebSocketChannel.connect(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+
+    // Wait for connection establishment
+    await _channel!.ready;
+  }
+
+  // Send a message
+  void sendMessage(String message) {
+
+    if (_channel == null) {
+      throw Exception('WebSocket is not connected');
+    }
+
+    _channel!.sink.add(
+      jsonEncode({
+        'message': message,
+      }),
+    );
+  }
+
+  // Disconnect
+  Future<void> disconnect() async {
+
+    await _channel?.sink.close();
+
+    _channel = null;
+  }
+}
+
+```
+
+**Important: Why&#x20;**`10.0.2.2`**?**
+
+If you're using the Android emulator, `localhost` refers to the emulator itself, not your computer.
+
+Use:
+
+| Environment             | Backend address                  |
+| ----------------------- | -------------------------------- |
+| Android emulator        | `10.0.2.2:8000`                  |
+| iOS simulator           | Usually `127.0.0.1:8000`         |
+| Physical Android device | Your computer's local network IP |
+| Production              | Your Railway domain              |
+
+The key authentication code is:
+
+```
+headers: {
+    'Authorization': 'Bearer $accessToken',
+},
+```
+
+This sends your JWT access token during the WebSocket handshake.
+
+`IOWebSocketChannel` supports custom connection headers on Flutter's native platforms.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://pub.dev\&sz=32)
+
+Dart API+1
+
+
+
+### **Step 3. Use the service in your ChatScreen**
+
+For example:
+
+```
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import '../services/chat_socket_service.dart';
+
+class ChatScreen extends StatefulWidget {
+
+  const ChatScreen({super.key});
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+
+  final ChatSocketService _socket = ChatSocketService();
+
+  final TextEditingController _controller =
+      TextEditingController();
+
+  final List<String> _messages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    connectToChat();
+  }
+
+  Future<void> connectToChat() async {
+
+    try {
+
+      // Join conversation 15
+      await _socket.connect(15);
+
+      _socket.messages!.listen(
+        (event) {
+
+          final data = jsonDecode(event as String);
+
+          if (!mounted) return;
+
+          setState(() {
+            _messages.add(data['message']);
+          });
+        },
+        onError: (error) {
+          debugPrint('WebSocket error: $error');
+        },
+        onDone: () {
+          debugPrint('WebSocket disconnected');
+        },
+      );
+
+    } catch (e) {
+
+      debugPrint('Connection failed: $e');
+
+    }
+  }
+
+  void sendMessage() {
+
+    final message = _controller.text.trim();
+
+    if (message.isEmpty) return;
+
+    _socket.sendMessage(message);
+
+    _controller.clear();
+  }
+
+  @override
+  void dispose() {
+
+    _socket.disconnect();
+
+    _controller.dispose();
+
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Chat'),
+      ),
+
+      body: Column(
+        children: [
+
+          Expanded(
+            child: ListView.builder(
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+
+                return ListTile(
+                  title: Text(_messages[index]),
+                );
+              },
+            ),
+          ),
+
+          Row(
+            children: [
+
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  decoration: const InputDecoration(
+                    hintText: 'Write a message...',
+                  ),
+                ),
+              ),
+
+              IconButton(
+                onPressed: sendMessage,
+                icon: const Icon(Icons.send),
+              ),
+
+            ],
+          ),
+
+        ],
+      ),
+    );
+  }
+}
+```
+
+For simplicity, this screen displays message text only. In your real application, you'll use a message model to distinguish between the current user's messages and other users' messages.
+
+# **8. How does message delivery actually work?**
+
+Suppose User A and User B are both connected to conversation 15.
+
+User A sends this JSON from Flutter:
+
+```
+{
+    "message": "Hello User B!"
+}
+```
+
+Django receives it in:
+
+```
+async def receive_json(self, content, **kwargs):
+```
+
+Then Django executes:
+
+```
+await self.channel_layer.group_send(    self.room_group_name,    {        "type": "chat.message",        "message": content["message"],        "sender_id": self.user.id,    })
+```
+
+Because both users have joined the same group, Channels distributes the message to both connections.
+
+**Conversation 15**
+
+Live
+
+**User A**
+
+Hello User B!
+
+Sent through WebSocket
+
+Django Channels broadcasts the message
+
+**User B**
+
+Hello User B!
+
+Received instantly
+
+Notice that you don't have to make another HTTP request to retrieve this new message.
+
+# **9. How does this work with your DRF database?**
+
+One important thing: The consumer we built so far only broadcasts messages. It doesn't save them in your database.
+
+For a real chat app, you need to persist messages.
+
+I recommend this architecture:
+
+| Operation             | Technology                     |
+| --------------------- | ------------------------------ |
+| Register and login    | DRF + JWT                      |
+| Create conversation   | DRF                            |
+| Get conversation list | DRF                            |
+| Load old messages     | DRF                            |
+| Send a new message    | WebSocket                      |
+| Receive new messages  | WebSocket                      |
+| Save new message      | Django ORM inside the consumer |
+| Mark message as read  | DRF or WebSocket               |
+
+For example, when Flutter sends a message, your consumer should:
+
+1. Get the authenticated user from `self.scope["user"]`.
+2. Validate the message and conversation membership.
+3. Save the message in your `Message` database model.
+4. Broadcast the saved message to the conversation group.
+
+Because we're using an asynchronous consumer, database operations should use `database_sync_to_async` or Django's supported asynchronous ORM methods.
+
+For example, a database helper could look like:
+
+```
+from channels.db import database_sync_to_async@database_sync_to_asyncdef save_message(user, conversation_id, text):    return Message.objects.create(        sender=user,        conversation_id=conversation_id,        content=text,    )
+```
+
+This assumes your `Message` model has those fields; adapt them to your actual models.
+
+Also, verify conversation membership before allowing a connection. For example, with a many-to-many field called `members`:
+
+```
+@database_sync_to_asyncdef is_conversation_member(user_id, conversation_id):    return Conversation.objects.filter(        id=conversation_id,        members__id=user_id,    ).exists()
+```
+
+Call this inside `connect()` before accepting the connection. Replace `Conversation` and `members` with your actual model and relationship names.
+
+# **10. What happens when your JWT expires?**
+
+Your WebSocket connection is authenticated when it is established.
+
+Suppose your access token expires after 10 minutes.
+
+Your Flutter application should:
+
+1. Use the REST refresh endpoint to get a new access token.
+2. Store the new access token securely.
+3. Reconnect the WebSocket using the new token.
+
+An existing WebSocket connection is not automatically reauthenticated just because the JWT expires. For long-lived connections, consider periodically checking token expiry or limiting connection lifetime.
+
+Your existing Simple JWT refresh endpoint can handle the token renewal.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://django-rest-framework-simplejwt.readthedocs.io\&sz=32)
+
+Simple JWT 0.0.post50+g4949330fb documentation+1
+
+
+
+# **11. Configure Redis and deploy to Railway**
+
+For production, replace your local in-memory channel layer with Redis.
+
+Install:
+
+```
+pip install channels_redis
+```
+
+In `settings.py`:
+
+```
+import osCHANNEL_LAYERS = {    "default": {        "BACKEND": "channels_redis.core.RedisChannelLayer",        "CONFIG": {            "hosts": [                os.environ["REDIS_URL"]            ],        },    },}
+```
+
+Add a Redis service to Railway and configure the `REDIS_URL` environment variable in your Django service.
+
+The in-memory channel layer is suitable for local experiments, but it does not distribute messages between separate processes. Redis is the recommended production channel layer.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
+
+GitHub+1
+
+
+
+Since you were previously deploying with Gunicorn, change your Railway start command to:
+
+```
+daphne -b 0.0.0.0 -p $PORT config.asgi:application
+```
+
+Use your actual Django project package name if it isn't `config`.
+
+For the deployed Flutter application, connect using:
+
+```
+final uri = Uri.parse(
+    'wss://your-backend.up.railway.app/ws/chat/15/',
+);
+```
+
+# **12. Final architecture for your Flutter chat app**
+
+**Flutter application**
+
+**Authentication service**
+
+Uses REST API and stores JWT in secure storage.
+
+**Chat socket service**
+
+Connects to Channels and sends/receives real-time messages.
+
+**Chat screen**
+
+Displays messages and handles user interactions.
+
+**Django backend**
+
+**DRF**
+
+Login, profiles, conversations, history
+
+**Channels**
+
+Authentication, messaging, broadcasting
+
+**Database**
+
+Users, conversations, messages
+
+**Redis**
+
+Real-time event distribution
+
+## **What I recommend we build next**
+
+I would like to adapt this implementation to your actual chat application's database rather than make assumptions about your models.
+
+**Can you share your Django&#x20;**`Conversation`**&#x20;and&#x20;**`Message`**&#x20;models (and any participant/member model)?**
+
+Then we can build a complete implementation with private messaging, JWT authentication, persistent messages, message history, and read receipts that connects directly to your Flutter app.

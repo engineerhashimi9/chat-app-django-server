@@ -33,3 +33,6 @@ class Contact(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
+    user=models.ForeignKey(User, on_delete=models.CASCADE)
+    def get_email(self):
+        return self.user.email

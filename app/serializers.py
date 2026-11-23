@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Room, Message, UserRoom
+from .models import Room, Message, UserRoom, Contact
 from accounts.models import User
 from django.db.models import Count
 from django.core.exceptions import ObjectDoesNotExist
@@ -49,12 +49,26 @@ class RoomSerializer(serializers.ModelSerializer):
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    user=serializers.CharField(source="get_email", read_only=True)
+    user = serializers.CharField(source="get_email", read_only=True)
+
     class Meta:
         model = Message
         fields = '__all__'
+
     def validate(self, attrs):
-        request=self.context.get("request")
-        attrs["user"]=request.user.id
+        request = self.context.get("request")
+        attrs["user"] = request.user.id
         return super().validate(attrs)
-    
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    user = serializers.CharField(source="get_email", read_only=True)
+
+    class Meta:
+        model = Contact
+        fields = '__all__'
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        attrs["user"] = request.user.id
+        return super().validate(attrs)
