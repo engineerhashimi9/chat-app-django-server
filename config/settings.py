@@ -1,4 +1,6 @@
 
+import os
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,6 +22,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -27,9 +30,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    'rest_framework_simplejwt.token_blacklist',
-    "accounts" ,
-    "app" ,
+    "channels",
+    "rest_framework_simplejwt.token_blacklist",
+    "accounts",
+    "app",
 ]
 
 MIDDLEWARE = [
@@ -60,7 +64,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-
+ASGI_APPLICATION = "config.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -124,9 +128,29 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
 }
-from datetime import timedelta
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
+# for local settings
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+# CHANNEL_LAYERS = {
+#     "default":
+#         {
+#             "BACKEND":
+#                 "channels_redis.core.RedisChannelLayer",
+#                 "CONFIG": {
+#                     "hosts": [
+#                         os.environ.get(
+#                             "REDIS_URL",
+#                             "redis://127.0.0.1:6379/0"
+#                         )
+#                     ],
+#                 },
+#         },
+# }

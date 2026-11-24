@@ -64,7 +64,7 @@ class RoomDetailApiView(APIView):
             return Response({"detail": "object deleted!"}, status=201)
 
 
-class MessageApiView(APIView):
+class MessageListApiView(APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer
 
