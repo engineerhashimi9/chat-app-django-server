@@ -5,7 +5,17 @@ from rest_framework.response import Response
 from .models import Room, UserRoom, Message, Contact
 from django.shortcuts import get_object_or_404
 from accounts.models import User
+from rest_framework.pagination import PageNumberPagination
 
+
+
+class MessagePagination(PageNumberPagination):
+
+    page_size = 30
+
+    page_size_query_param = "page_size"
+
+    max_page_size = 100
 
 class RoomListApiView(APIView):
     serializer_class = RoomSerializer
@@ -123,7 +133,7 @@ class MessageDetailApiView(APIView):
             return Response({"detail": "object deleted"}, status=200)
 
 
-class ContactListApi(APIView):
+class ContactListApiView(APIView):
     serializer_class = ContactSerializer
     # permission_classes=[IsAuthenticated]
 
@@ -171,3 +181,43 @@ class ContactDetailApiView(APIView):
         else :
             contact.delete()
             return Response({"detail":"object has been deleted"},status=200)
+
+class RoomMessagesApiView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, room_id):
+
+        # 1. Verify that the user belongs to the room
+        room = get_object_or_404(
+            Room.objects.filter(userroom__user=request.user),
+            id=room_id
+        )
+
+        # 2. Get messages of this room only
+        messages = (
+            Message.objects
+            .filter(room=room)
+            .select_related("user")
+            .order_by("-created_time", "-id")
+        )
+
+        # 3. Paginate messages
+        paginator = MessagePagination()
+
+        page = paginator.paginate_queryset(
+            messages,
+            request,
+            view=self
+        )
+
+        # 4. Serialize messages
+        serializer = MessageHistorySerializer(
+            page,
+            many=True
+        )
+
+        # 5. Return paginated response
+        return paginator.get_paginated_response(
+            serializer.data
+        )

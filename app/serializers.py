@@ -72,3 +72,20 @@ class ContactSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         attrs["user"] = request.user.id
         return super().validate(attrs)
+class MessageHistorySerializer(serializers.ModelSerializer):
+
+    user_email = serializers.EmailField(
+        source="user.email",
+        read_only=True
+    )
+
+    class Meta:
+        model = Message
+
+        fields = [
+            "id",
+            "room",
+            "user_email",
+            "content",
+            "created_time"
+        ]
