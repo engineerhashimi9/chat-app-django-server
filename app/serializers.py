@@ -26,19 +26,25 @@ class RoomSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"reciver_email": "you cant create room with yours"})
 
-        existing_room = Room.objects.filter(
-            is_group=False,
-            userroom__user=user
-        ).filter(userroom__user=reciver).annotate(
-            num_users=Count('userroom')
-        ).filter(
-            num_users=2
-        ).first()
+        user_room_ids = UserRoom.objects.filter(
+            user=user).values_list("room_id", flat=True)
+        existing_room = (
+            Room.objects.filter(
+                id__in=user_room_ids,
+                is_group=False,
+                userroom__user=reciver,
+            )
+            .distinct()
+            .first()
+        )
 
         if existing_room:
             return existing_room
 
-        room = Room.objects.create(name=validated_data["name"])
+        room = Room.objects.create(
+            name=validated_data["name"],
+            is_group=validated_data.get("is_group", False),
+        )
 
         UserRoom.objects.bulk_create([
             UserRoom(user=user, room=room),
@@ -54,11 +60,48 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = '__all__'
+    def validate_content(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Message cannot be empty."
+            )
+
+        if len(value) > 2000:
+            raise serializers.ValidationError(
+                "Message cannot exceed 2000 characters."
+            )
+
+        return value
+
 
     def validate(self, attrs):
+
         request = self.context.get("request")
-        attrs["user"] = request.user.id
-        return super().validate(attrs)
+
+        room = attrs.get("room")
+
+        if room is None:
+            raise serializers.ValidationError(
+                {"room": "Room is required."}
+            )
+
+        is_member = UserRoom.objects.filter(
+            user=request.user,
+            room=room
+        ).exists()
+
+        if not is_member:
+            raise serializers.ValidationError({
+                "room": "You are not a member of this room."
+            })
+
+        # Always use authenticated user
+        attrs["user"] = request.user
+
+        return attrs
 
 
 class ContactSerializer(serializers.ModelSerializer):
@@ -70,8 +113,10 @@ class ContactSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get("request")
-        attrs["user"] = request.user.id
+        attrs["user"] = request.user
         return super().validate(attrs)
+
+
 class MessageHistorySerializer(serializers.ModelSerializer):
 
     user_email = serializers.EmailField(

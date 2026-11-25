@@ -1,6 +1,6 @@
-
 import json
-
+from asgiref.sync import sync_to_async
+from django.core.cache import cache
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -56,8 +56,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
         print("WebSocket disconnected")
 
     async def receive(self, text_data):
-
+        if await self.is_rate_limited():
+            await self.send_json({
+                "error": "Rate limit exceeded. Please wait before sending more messages."
+            })
+            await self.close(code=4408)  # Custom close code for rate limiting
+            return
         # 1. Parse incoming JSON
+        if not await self.is_room_member():
+
+            await self.close(code=4403)
+            return
         try:
             data = json.loads(text_data)
         except (json.JSONDecodeError, TypeError):
@@ -66,14 +75,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             })
             return
 
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or set(data) != {"message"}:
             await self.send_json({
-                "error": "Invalid message format"
+                "error": "Invalid message format or missing 'message' key"
             })
             return
 
         # 2. Get message content
-        message = data.get("message")
+        message = data["message"]
 
         if not isinstance(message, str):
             await self.send_json({
@@ -99,6 +108,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return
 
         # 4. Send message to room members
+        if not await self.is_room_member():
+
+            await self.close(code=4403)
+            return
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -119,6 +132,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         return UserRoom.objects.filter(
             user_id=self.user.pk,
+            user__is_active=True,
             room_id=self.room_id
         ).exists()
 
@@ -153,3 +167,34 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "message": message.content,
             "created_time": message.created_time.isoformat()
         }
+
+    @sync_to_async
+    def is_rate_limited(self):
+
+        key = f"chat-rate:{self.user.pk}"
+
+        # First message in the 10-second window
+        if cache.add(key, 1, timeout=10):
+            return False
+
+        # Increase message counter
+        try:
+            count = cache.incr(key)
+
+        except ValueError:
+            cache.add(key, 1, timeout=10)
+            return False
+
+        # More than 10 messages?
+        return count > 10
+
+    async def send_json(self, data):
+        await self.send(text_data=json.dumps(data))
+
+    async def send_error(self, message):
+
+        await self.send(
+            text_data=json.dumps({
+                "error": message
+            })
+        )

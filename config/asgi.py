@@ -1,4 +1,3 @@
-
 import os
 
 from django.core.asgi import get_asgi_application
@@ -8,23 +7,33 @@ os.environ.setdefault(
     "config.settings"
 )
 
-# Initialize Django first
 django_asgi_app = get_asgi_application()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
 
 from app.routing import websocket_urlpatterns
-from app.middlewares import JWTAuthMiddleware
+
+from app.middlewares import (
+    JWTAuthMiddleware,
+    OptionalOriginValidator
+)
 
 
 application = ProtocolTypeRouter({
 
-    # HTTP requests
     "http": django_asgi_app,
 
-    # WebSocket connections
-    "websocket": JWTAuthMiddleware(
-        URLRouter(websocket_urlpatterns)
+    "websocket": OptionalOriginValidator(
+
+        JWTAuthMiddleware(
+            URLRouter(websocket_urlpatterns)
+        ),
+
+        allowed_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+
     ),
 
 })

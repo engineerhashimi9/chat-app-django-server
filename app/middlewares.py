@@ -1,6 +1,6 @@
 
 from django.contrib.auth.models import AnonymousUser
-
+from channels.security.websocket import OriginValidator
 from channels.db import database_sync_to_async
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -53,3 +53,38 @@ class JWTAuthMiddleware:
         scope["user"] = user
 
         return await self.inner(scope, receive, send)
+class OptionalOriginValidator:
+
+    def __init__(self, application, allowed_origins):
+
+        self.application = application
+
+        self.validator = OriginValidator(
+            application,
+            allowed_origins
+        )
+
+    async def __call__(self, scope, receive, send):
+
+        headers = scope.get("headers", [])
+
+        has_origin = any(
+            name.lower() == b"origin"
+            for name, value in headers
+        )
+
+        # Native clients may not send Origin
+        if not has_origin:
+
+            return await self.application(
+                scope,
+                receive,
+                send
+            )
+
+        # Validate Origin when it exists
+        return await self.validator(
+            scope,
+            receive,
+            send
+        )
